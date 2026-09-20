@@ -1,10 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibrary } from '@/composables/useLibrary'
 import GlobalSearch from './GlobalSearch.vue'
 
-const { state, connectLocal, grantPermission, disconnectLocal } = useLibrary()
+const { state, connectLocal, grantPermission, activate, removeRoot } = useLibrary()
 const route = useRoute()
 const router = useRouter()
 
@@ -16,8 +16,20 @@ const TABS = [
 ]
 
 const menuOpen = ref(false)
+const wrapRef = ref(null)
 
-const beaconClass = computed(() => {
+/** 当前数据源（内置笔记 / 某个本地目录） */
+const current = computed(
+  () => state.sources.find((s) => s.id === state.activeId) || state.sources[0]
+)
+
+/**
+ * 圆点颜色表示状态，**按钮文字只写数据源名** ——
+ * 以前文字承载了「已连接「x」（3 篇）」这类完整状态，切来切去时宽度会跳。
+ * 状态挪到圆点和 title 上，文字就能定长。
+ */
+const dotClass = computed(() => {
+  if (state.source === 'builtin') return ''
   if (state.beacon === 'syncing') return 'is-syncing'
   if (state.beacon === 'connected') return 'is-on'
   if (state.beacon === 'error') return 'is-err'
@@ -25,24 +37,56 @@ const beaconClass = computed(() => {
   return ''
 })
 
-const beaconTitle = computed(() => {
+const buttonTitle = computed(() => {
   if (!state.supported) return '当前浏览器不支持 File System Access，请用 Chrome / Edge'
-  if (state.beacon === 'connected') return `已连接「${state.dirName}」· 点这里重新选择目录`
-  if (state.beacon === 'need-permission') return '上次授权的目录需要重新确认'
-  return '点这里选择一个本地文件夹，直接读里面的 markdown'
+  return state.beaconText || '点这里切换数据源'
 })
 
+const hasLocal = computed(() => state.sources.some((s) => s.kind === 'local'))
+
+/** 一个目录都没挂时，点按钮直接弹选择器；挂过之后才展开菜单 */
 function onBeacon() {
   if (!state.supported) return
-  if (state.beacon === 'need-permission') grantPermission()
-  else connectLocal()
+  if (!hasLocal.value && state.source === 'builtin') {
+    connectLocal()
+    return
+  }
+  menuOpen.value = !menuOpen.value
 }
 
-/** 已连接时，再点一次给个「断开」的机会，否则用户没法退回内置数据 */
-function onDisconnect() {
-  menuOpen.value = false
-  disconnectLocal()
+function countLabel(src) {
+  if (src.needsPermission) return '需要授权'
+  if (src.error) return '读取失败'
+  return src.count != null ? `${src.count} 篇` : ''
 }
+
+async function onPick(src) {
+  menuOpen.value = false
+  if (src.needsPermission) {
+    await grantPermission(src.id)
+    return
+  }
+  if (src.id === state.activeId) return
+  await activate(src.id)
+}
+
+async function onRemove(src, e) {
+  e.stopPropagation()
+  menuOpen.value = false
+  await removeRoot(src.id)
+}
+
+async function onConnect() {
+  menuOpen.value = false
+  await connectLocal()
+}
+
+function onDocClick(e) {
+  if (!wrapRef.value?.contains(e.target)) menuOpen.value = false
+}
+
+onMounted(() => document.addEventListener('click', onDocClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
@@ -72,30 +116,53 @@ function onDisconnect() {
     <div class="tb-right">
       <GlobalSearch />
 
-      <div class="tb-beacon-wrap">
+      <div ref="wrapRef" class="tb-beacon-wrap">
         <button
           class="tb-beacon"
-          :class="beaconClass"
-          :title="beaconTitle"
+          :class="dotClass"
+          :title="buttonTitle"
           :disabled="!state.supported"
+          :aria-expanded="menuOpen"
+          aria-haspopup="menu"
           @click="onBeacon"
         >
           <span class="tb-dot" />
-          <span class="tb-beacon-text">{{ state.beaconText }}</span>
-          <span
-            v-if="state.beacon === 'connected'"
-            class="tb-caret"
-            @click.stop="menuOpen = !menuOpen"
-            >▾</span
-          >
+          <span class="tb-beacon-text">{{ current.name }}</span>
+          <span v-if="hasLocal || state.source === 'local'" class="tb-caret" aria-hidden="true">▾</span>
         </button>
-        <div v-if="menuOpen && state.beacon === 'connected'" class="tb-menu">
-          <div class="tb-menu-head">{{ state.dirName }}</div>
-          <div class="tb-menu-row">
-            <span>共 {{ state.notes.length }} 篇</span>
-            <span v-if="state.skipped.length" class="tb-menu-warn">{{ state.skipped.length }} 篇读取失败</span>
+
+        <!-- 数据源切换器。一个挂载点 = 一个独立知识库，这里只切换、不合并 ——
+             合并会让不同仓库的同名文件撞成同一个 id，理由见 useLibrary.js 顶部 -->
+        <div v-if="menuOpen" class="tb-menu" role="menu">
+          <div class="tb-menu-cap">数据源</div>
+
+          <!-- 「选择」和「移除」是**并排的两个 button**，不是 button 里套 span[role=button] ——
+               交互元素不能嵌套，那样屏幕阅读器会读不出层级，HTML 校验也不通过 -->
+          <div
+            v-for="s in state.sources"
+            :key="s.id"
+            class="tb-src"
+            :class="{ 'is-active': s.id === state.activeId }"
+          >
+            <button class="tb-src-pick" role="menuitem" @click="onPick(s)">
+              <span class="tb-src-tick" aria-hidden="true">{{ s.id === state.activeId ? '✓' : '' }}</span>
+              <span class="tb-src-name">{{ s.name }}</span>
+              <span class="tb-src-count" :class="{ 'is-warn': s.needsPermission || s.error }">
+                {{ countLabel(s) }}
+              </span>
+            </button>
+            <button
+              v-if="s.kind === 'local'"
+              class="tb-src-x"
+              :title="`移除「${s.name}」`"
+              :aria-label="`移除「${s.name}」`"
+              @click="onRemove(s, $event)"
+            >
+              ×
+            </button>
           </div>
-          <button class="tb-menu-item" @click="onDisconnect">断开，改用内置数据</button>
+
+          <button class="tb-menu-add" role="menuitem" @click="onConnect">＋ 连接本地目录</button>
         </div>
       </div>
     </div>
@@ -209,7 +276,7 @@ function onDisconnect() {
   min-width: 0;
 }
 
-/* —— 本地目录状态灯 —— */
+/* —— 数据源切换器 —— */
 .tb-beacon-wrap {
   position: relative;
 }
@@ -224,7 +291,7 @@ function onDisconnect() {
   font-size: 12px;
   gap: 7px;
   height: 34px;
-  max-width: 260px;
+  max-width: 220px;
   padding: 0 11px;
   transition: border-color 0.2s ease;
 }
@@ -283,45 +350,97 @@ function onDisconnect() {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
-  padding: 10px;
+  padding: 6px;
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
-  width: 220px;
+  width: 248px;
   z-index: 60;
 }
 
-.tb-menu-head {
-  font-size: 12px;
-  font-weight: 500;
-  margin-bottom: 6px;
+.tb-menu-cap {
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 4px 8px 6px;
+}
+
+.tb-src {
+  align-items: center;
+  border-radius: 6px;
+  display: flex;
+  transition: background-color 0.15s ease;
+}
+
+.tb-src:hover {
+  background: var(--panel-hover);
+}
+
+.tb-src.is-active {
+  color: #fff;
+}
+
+.tb-src-pick {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  font-size: 12.5px;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 4px 7px 8px;
+  text-align: left;
+}
+
+.tb-src-tick {
+  color: var(--accent);
+  flex: none;
+  font-size: 11px;
+  width: 12px;
+}
+
+.tb-src-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tb-menu-row {
+.tb-src-count {
   color: var(--text-3);
-  display: flex;
+  flex: none;
   font-size: 11px;
-  justify-content: space-between;
-  margin-bottom: 8px;
 }
 
-.tb-menu-warn {
+.tb-src-count.is-warn {
   color: var(--st-proposed);
 }
 
-.tb-menu-item {
+.tb-src-x {
+  border-radius: 4px;
+  color: var(--text-3);
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+  margin-right: 5px;
+  padding: 3px 5px;
+}
+
+.tb-src-x:hover {
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--st-rejected);
+}
+
+.tb-menu-add {
   border-top: 1px solid var(--line);
   color: var(--accent);
   font-size: 12px;
-  padding-top: 8px;
+  margin-top: 5px;
+  padding: 9px 8px 5px;
   text-align: left;
   width: 100%;
 }
 
-.tb-menu-item:hover {
+.tb-menu-add:hover {
   text-decoration: underline;
 }
 
@@ -345,8 +464,8 @@ function onDisconnect() {
     flex-basis: 100%;
     order: 3;
   }
-  .tb-beacon-text {
-    max-width: 120px;
+  .tb-beacon {
+    max-width: 150px;
   }
 }
 </style>

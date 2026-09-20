@@ -3,7 +3,7 @@
  * ---------------------------------------------------------------------------
  * 让「看板」直接读本地文件夹里的 markdown —— 不用提交、不用部署、不用后端。
  *
- * 三个必须处理的现实问题：
+ * 四个必须处理的现实问题：
  *
  * 1. **目录句柄要跨刷新存活。** File System Access 的句柄不能存 localStorage
  *    （会被 JSON 序列化毁掉），只能存 IndexedDB（结构化克隆）。
@@ -12,11 +12,19 @@
  *    界面上给不同提示。
  * 3. **浏览器支持面窄。** 只有 Chromium 系支持。不支持时要明确告诉用户
  *    「换个浏览器」或「用内置数据」，而不是静默失败。
+ * 4. **可以挂多个目录，但它们是彼此独立的数据源，不合并。**
+ *    原因是 `parse.js` 里笔记的 id 就是**相对笔记根的路径** ——
+ *    两个仓库都有 `notes/design.md` 的话，合并会让它们撞成同一个 id，
+ *    交叉引用也会串到别的仓库去。所以一次只看一个数据源，靠顶栏切换。
+ *    这里只负责「句柄数组」的存取，切换逻辑在 `useLibrary.js`。
  */
 
 const DB_NAME = 'jerry-notes'
 const STORE = 'handles'
-const KEY = 'notesRoot'
+/** 句柄数组：[{ id, handle }]。id 形如 `local:我的笔记` */
+const KEY_ROOTS = 'roots'
+/** 2026-09-20 之前的单句柄 key，读不到数组时迁移一次，别让已授权的目录白丢 */
+const KEY_LEGACY = 'notesRoot'
 
 /** 浏览器是否支持（Safari / Firefox 不支持，别指望 polyfill） */
 export function isSupported() {
@@ -36,31 +44,31 @@ function openDB() {
   })
 }
 
-async function idbPut(value) {
+async function idbPut(key, value) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).put(value, KEY)
+    tx.objectStore(STORE).put(value, key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
 }
 
-async function idbGet() {
+async function idbGet(key) {
   const db = await openDB()
   return new Promise((resolve) => {
     const tx = db.transaction(STORE, 'readonly')
-    const req = tx.objectStore(STORE).get(KEY)
-    req.onsuccess = () => resolve(req.result || null)
+    const req = tx.objectStore(STORE).get(key)
+    req.onsuccess = () => resolve(req.result ?? null)
     req.onerror = () => resolve(null)
   })
 }
 
-async function idbClear() {
+async function idbDelete(key) {
   const db = await openDB()
   return new Promise((resolve) => {
     const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).delete(KEY)
+    tx.objectStore(STORE).delete(key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => resolve()
   })
@@ -68,9 +76,38 @@ async function idbClear() {
 
 /* ---------------------------------- 句柄 ---------------------------------- */
 
-export const saveHandle = (handle) => idbPut(handle).catch(() => {})
-export const loadHandle = () => idbGet()
-export const forgetHandle = () => idbClear()
+/**
+ * 读出全部已授权的目录句柄，返回 `[{ id, handle }]`，顺序即挂载顺序。
+ *
+ * 首次运行时顺带做一次迁移：2026-09-20 之前只存一个句柄（key 是 `notesRoot`），
+ * 把那个句柄包成单元素数组写回去 —— 用户不用为这次改动重新授权一遍。
+ */
+export async function loadRoots() {
+  const list = await idbGet(KEY_ROOTS)
+  if (Array.isArray(list) && list.length) return list
+
+  const legacy = await idbGet(KEY_LEGACY)
+  if (legacy?.name) {
+    const migrated = [{ id: `local:${legacy.name}`, handle: legacy }]
+    await idbPut(KEY_ROOTS, migrated)
+    await idbDelete(KEY_LEGACY)
+    return migrated
+  }
+  return []
+}
+
+/**
+ * 整体覆盖写入（目录就几个，不做增量）。
+ * **故意不吞错** —— 写失败意味着刷新后目录会消失，这种「静默丢状态」
+ * 比抛出来更难查。调用方 `await` 它并自己决定怎么提示。
+ */
+export const saveRoots = (list) => idbPut(KEY_ROOTS, list)
+
+/** 清空所有句柄（新旧两个 key 都清，别留下迁移前的残留） */
+export async function forgetRoots() {
+  await idbDelete(KEY_ROOTS)
+  await idbDelete(KEY_LEGACY)
+}
 
 /** 当前权限：'granted' | 'prompt' | 'denied' | 'unknown' */
 export async function permissionOf(handle) {
