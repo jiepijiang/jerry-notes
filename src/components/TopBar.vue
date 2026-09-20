@@ -50,7 +50,10 @@ function onDisconnect() {
     <div class="tb-brand">
       <span class="tb-logo" aria-hidden="true"><i /></span>
       <span class="tb-name">知识库</span>
-      <span class="tb-count">{{ state.notes.length }} 篇</span>
+      <!-- 数据到齐前显示「…」而不是「0 篇」：`state.notes` 初始是空数组，
+           直接渲染会先闪一下「0 篇」再跳成真实篇数（实测约 450ms）。
+           「库是空的」和「还没读完」看起来一模一样，但意思完全不同。 -->
+      <span class="tb-count">{{ state.status === 'ready' ? `${state.notes.length} 篇` : '…' }}</span>
     </div>
 
     <nav class="tb-tabs">
@@ -159,7 +162,11 @@ function onDisconnect() {
   border-radius: 10px;
   color: var(--text-2);
   font-size: 11px;
+  /* 定宽 + 居中：加载态是「…」、就绪态是「21 篇」，不定宽的话
+     徽章宽度会变，把右边的 tab 挤得抖一下 */
+  min-width: 50px;
   padding: 2px 8px;
+  text-align: center;
 }
 
 .tb-tabs {
