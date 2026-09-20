@@ -1,0 +1,23 @@
+{
+  "name": "jerry-notes",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Jerry 的知识库 —— 结构化笔记的分析看板，支持挂载本地笔记目录",
+  "scripts": {
+    "notes": "node scripts/gen-notes.mjs",
+    "predev": "npm run notes",
+    "dev": "vite",
+    "prebuild": "npm run notes",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.7"
+  }
+}

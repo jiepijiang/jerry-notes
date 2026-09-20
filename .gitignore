@@ -1,0 +1,33 @@
+# 依赖与构建产物
+node_modules
+dist
+dist-ssr
+.vite
+
+# 本地环境
+*.local
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# 日志
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 本机 AI 工作区（项目记忆等本地状态，不随仓库分发）
+.workbuddy-ai
+
+# 构建期生成的笔记数据。**故意不入库**：
+# 它是 notes/ 的派生产物，而 notes/ 本身已经在仓库里，重新生成是免费且确定的
+# —— 与 jerry-site 的 recent.json 不同，那个依赖网络，才需要提交一份兜底。
+# 入库的话每改一篇笔记都会产生双份 diff（正文在 .md 和 .json 里各存一遍），
+# 仓库历史会持续膨胀。dev / build 前的 npm 钩子会自动重建它，不用手动跑。
+public/static/data/notes.json

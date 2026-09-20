@@ -1,0 +1,155 @@
+/* =========================================================================
+   Markdown 正文样式
+   -------------------------------------------------------------------------
+   必须是**全局样式**：正文是通过 v-html 插进来的，
+   scoped 样式不会作用到 v-html 生成的内容上（拿不到 scope 属性）。
+   ========================================================================= */
+
+.md {
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.78;
+  overflow-wrap: anywhere;
+}
+
+.md > *:first-child {
+  margin-top: 0;
+}
+
+.md > *:last-child {
+  margin-bottom: 0;
+}
+
+.md .md-p {
+  margin: 0 0 11px;
+}
+
+.md .md-h {
+  color: #fff;
+  font-weight: 500;
+  line-height: 1.45;
+  margin: 20px 0 9px;
+}
+
+.md .md-h1 {
+  font-size: 17px;
+}
+
+.md .md-h2 {
+  font-size: 15.5px;
+}
+
+.md .md-h3 {
+  font-size: 14.5px;
+}
+
+.md .md-h4 {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+.md strong {
+  color: #fff;
+  font-weight: 500;
+}
+
+.md em {
+  color: var(--text-2);
+  font-style: italic;
+}
+
+.md del {
+  color: var(--text-3);
+}
+
+/* —— 行内代码 —— */
+.md code {
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: #ffd9a0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
+}
+
+/* —— 代码块 —— */
+.md .md-pre {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 0 0 12px;
+  overflow-x: auto;
+  padding: 12px 14px;
+  position: relative;
+}
+
+.md .md-pre code {
+  background: none;
+  border: 0;
+  color: #cfe3ff;
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.7;
+  padding: 0;
+  white-space: pre;
+}
+
+.md .md-code-lang {
+  color: var(--text-3);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  position: absolute;
+  right: 10px;
+  text-transform: uppercase;
+  top: 8px;
+}
+
+/* —— 列表 —— */
+.md .md-list {
+  margin: 0 0 11px;
+  padding-left: 20px;
+}
+
+.md .md-list li {
+  margin-bottom: 5px;
+}
+
+.md .md-list li::marker {
+  color: var(--text-3);
+}
+
+/* —— 引用 —— */
+.md .md-quote {
+  border-left: 3px solid var(--line-strong);
+  color: var(--text-2);
+  margin: 0 0 12px;
+  padding: 2px 0 2px 14px;
+}
+
+/* —— 分隔线 —— */
+.md .md-hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 18px 0;
+}
+
+/* —— 链接 —— */
+.md a {
+  color: var(--purple_text_color);
+  text-decoration: underline;
+  text-decoration-color: rgba(116, 123, 255, 0.45);
+  text-underline-offset: 3px;
+}
+
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* 指向其它笔记的链接：加个前置箭头，和普通外链区分开 */
+.md .md-note-link::before {
+  content: '↗ ';
+  font-size: 0.85em;
+  opacity: 0.7;
+}
