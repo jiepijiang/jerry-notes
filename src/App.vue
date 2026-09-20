@@ -95,9 +95,16 @@ onBeforeUnmount(() => {
       {{ state.notes.length }} 篇笔记 ·
       {{ state.source === 'local' ? `本地目录「${state.dirName}」` : '内置数据' }}
     </span>
+    <!-- 三站互链的收口：主站 ⇄ 导航站 ⇄ 知识库。
+         主站和导航站都各自链到了本站，本站此前只回链主站，
+         从知识库想去导航站只能先回主站绕一圈。 -->
     <span class="foot-right">
       <a href="https://jiepijiang.github.io/jerry-site/" target="_blank" rel="noopener noreferrer">
-        返回主站
+        主站
+      </a>
+      <span class="foot-sep" aria-hidden="true">·</span>
+      <a href="https://jiepijiang.github.io/jerry-tools/" target="_blank" rel="noopener noreferrer">
+        导航站
       </a>
     </span>
   </footer>
@@ -170,6 +177,16 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   max-width: 1360px;
   padding: 16px 20px 24px;
+}
+
+.foot-right {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.foot-sep {
+  color: var(--text-3);
 }
 
 .foot-right a {
