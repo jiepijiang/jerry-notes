@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { QUAD_META } from '@/lib/parse'
 import { useLibrary } from '@/composables/useLibrary'
 import NoteBadge from './NoteBadge.vue'
@@ -61,6 +61,96 @@ watch(
     if (v) document.querySelector('.dw-body')?.scrollTo({ top: 0 })
   }
 )
+
+/* ===========================================================================
+   焦点管理
+   ---------------------------------------------------------------------------
+   抽屉标了 role="dialog" + aria-modal="true"，**这等于对读屏软件承诺了「这是个模态」**
+   —— 它会据此把页面其余部分当成不可达。如果行为不兑现（焦点还在外面、
+   Tab 能跑到背景里去），对键盘和读屏用户来说反而比不标更混乱。
+   所以下面三件事是配套的，不是「可选的增强」：
+
+     1. 打开时焦点进抽屉
+     2. Tab / Shift+Tab 圈在抽屉里（标了 aria-modal 就没有「跑到外面」这个选项）
+     3. 关闭时焦点还给当初打开它的那个元素
+   =========================================================================== */
+const dwRef = ref(null)
+
+/** 打开抽屉前焦点在哪 —— 关闭时要还回去 */
+let restoreTo = null
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/** 抽屉里当前可聚焦的元素（过滤掉不可见的） */
+function focusables() {
+  const root = dwRef.value
+  if (!root) return []
+  return [...root.querySelectorAll(FOCUSABLE)].filter(
+    (el) => el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0
+  )
+}
+
+function onKeydown(e) {
+  if (e.key !== 'Tab') return
+  const list = focusables()
+  if (!list.length) {
+    // 抽屉里没有任何可聚焦元素时，至少别让 Tab 跑出去
+    e.preventDefault()
+    return
+  }
+  const first = list[0]
+  const last = list[list.length - 1]
+  const cur = document.activeElement
+
+  // 焦点已经跑到抽屉外面了（比如内容整体重渲染）→ 拽回来
+  if (!dwRef.value?.contains(cur)) {
+    e.preventDefault()
+    ;(e.shiftKey ? last : first).focus()
+    return
+  }
+  if (e.shiftKey && cur === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && cur === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+/** 只有抽屉真的开着时才挂监听 */
+watch(
+  () => Boolean(note.value),
+  (open) => {
+    if (open) document.addEventListener('keydown', onKeydown, true)
+    else document.removeEventListener('keydown', onKeydown, true)
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
+
+watch(
+  () => note.value?.id || '',
+  async (id, prev) => {
+    if (id) {
+      // 从「没开」变成「开着」才记录归还目标；
+      // 在抽屉里点血缘链接换一篇（prev 也有值）时不能覆盖，
+      // 否则关闭后会还到抽屉内部那个已经消失的 chip 上。
+      if (!prev) {
+        const cur = document.activeElement
+        restoreTo = cur && cur !== document.body ? cur : null
+      }
+      await nextTick()
+      // 换篇之后原焦点元素已不存在，焦点会掉到 body，这里重新收进抽屉
+      dwRef.value?.focus()
+    } else if (prev) {
+      const el = restoreTo
+      restoreTo = null
+      if (el && document.contains(el)) el.focus()
+    }
+  }
+)
 </script>
 
 <template>
@@ -70,7 +160,19 @@ watch(
     </Transition>
 
     <Transition name="drawer">
-      <aside v-if="note" class="dw" role="dialog" aria-modal="true" :aria-label="note.title">
+      <!--
+        tabindex="-1" 是为了让脚本能把焦点移进来（打开时 / 换篇后）。
+        它不是 Tab 可达的，所以不会进 tab 序列 —— 序列由 onKeydown 圈定。
+      -->
+      <aside
+        v-if="note"
+        ref="dwRef"
+        class="dw"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="note.title"
+        tabindex="-1"
+      >
         <header class="dw-head">
           <NoteBadge kind="status" :value="note.status" />
           <NoteBadge kind="category" :value="note.category" />
@@ -200,6 +302,9 @@ watch(
   flex-direction: column;
   height: 100%;
   max-width: 96vw;
+  /* 脚本会把焦点移到容器上（打开时 / 换篇后），但它不是 Tab 可达的，
+     所以这圈焦点环只会是噪音。真正的焦点环留给里面那些可交互元素。 */
+  outline: none;
   position: fixed;
   right: 0;
   top: 0;
