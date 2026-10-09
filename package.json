@@ -10,7 +10,8 @@
     "dev": "vite",
     "prebuild": "npm run notes",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:search": "node scripts/verify-search.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13",

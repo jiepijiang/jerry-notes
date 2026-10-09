@@ -351,6 +351,49 @@ export function parseNote(raw, relPath, index = new Map(), fallbackMtime) {
  * 建立「路径 / slug → 路径」索引。
  * slug 撞车时**先到先得**，所以先按路径排序，保证多次构建结果一致。
  */
+/**
+ * 把查询串切成词。
+ *
+ * 按空白切（空格 / 全角空格 / Tab / 换行都算），全角空格要先归一化 ——
+ * 中文输入法下打出来的空格常常是全角 `\u3000`，不处理的话
+ * `图标　拖拽`（全角）会被当成**一个**词，等于没切。
+ */
+export function tokenize(q) {
+  return String(q || '')
+    .replace(/\u3000/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+/**
+ * 多词 AND 匹配：**每一个词**都要在 `haystack` 里出现。
+ *
+ * 🔴 为什么要这个函数（2026-10-09 修）
+ *
+ * 原来两处检索都是把**整串查询**当成**一个子串**：
+ *
+ *     const needle = q.trim().toLowerCase()
+ *     hay.includes(needle)
+ *
+ * 于是搜 `省略号 flex` 时，找的是「省略号 flex」这**连着带空格的一串** ——
+ * 而笔记里这两个词从来不相邻，结果必然是 0 条。
+ * 可「记得写过、忘了标题」的时候，人**天然会敲多个词**。
+ *
+ * ⚠️ **语义是 AND，不是 OR。** 用 OR 的话「多词能命中」也成立，
+ *    但那是错的：搜 `图标 密度` 会返回所有含「图标」的**或**含「密度」的，
+ *    等于把检索放宽成噪声。判据见 `scripts/verify-search.mjs` 里的反向对照。
+ *
+ * 空查询返回 `true`（「没有条件」= 全通过），这样调用方不用先判空。
+ */
+export function matchesAll(haystack, query) {
+  const words = tokenize(query)
+  if (!words.length) return true
+  const hay = String(haystack || '').toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
 export function buildSlugIndex(relPaths) {
   const index = new Map()
   for (const rel of [...relPaths].sort()) {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CATEGORIES, STATUSES } from '@/lib/parse'
+import { CATEGORIES, STATUSES, matchesAll } from '@/lib/parse'
 import { useLibrary } from '@/composables/useLibrary'
 import NoteBadge from '../NoteBadge.vue'
 
@@ -20,6 +20,7 @@ const q = ref('')
 const status = ref('')
 const category = ref('')
 const sort = ref('new')
+const tag = ref('')
 
 /** 从 URL 恢复筛选条件（概览跳过来时会带上） */
 watch(
@@ -28,6 +29,7 @@ watch(
     q.value = typeof query.q === 'string' ? query.q : ''
     status.value = typeof query.status === 'string' ? query.status : ''
     category.value = typeof query.category === 'string' ? query.category : ''
+    tag.value = typeof query.tag === 'string' ? query.tag : ''
   },
   { immediate: true }
 )
@@ -38,6 +40,7 @@ function pushQuery() {
   if (q.value.trim()) query.q = q.value.trim()
   if (status.value) query.status = status.value
   if (category.value) query.category = category.value
+  if (tag.value) query.tag = tag.value
   if (route.query.note) query.note = route.query.note
   router.replace({ query })
 }
@@ -55,15 +58,28 @@ const usedCategories = computed(() => {
   return list
 })
 
+/** 出现过的标签，按出现次数排 —— 筛选下拉用 */
+const usedTags = computed(() => {
+  const count = new Map()
+  for (const n of state.notes) for (const t of n.tags) count.set(t, (count.get(t) || 0) + 1)
+  return [...count.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => ({ name, n }))
+})
+
 const list = computed(() => {
-  const needle = q.value.trim().toLowerCase()
   let out = state.notes.filter((n) => {
     if (status.value && n.status !== status.value) return false
     if (category.value && n.category !== category.value) return false
-    if (needle) {
-      const hay = `${n.title} ${n.slug} ${n.tags.join(' ')} ${n.summary} ${n.body}`.toLowerCase()
-      if (!hay.includes(needle)) return false
-    }
+    if (tag.value && !n.tags.includes(tag.value)) return false
+    /*
+     * 关键词：**每个词**都要命中（AND），跨字段算。
+     *
+     * ⚠️ 以前是 `hay.includes(needle)` —— 整串当一个子串，
+     *    搜 `省略号 flex` 必然 0 条。语义与理由见 parse.js 的 `matchesAll`。
+     */
+    const hay = `${n.title} ${n.slug} ${n.tags.join(' ')} ${n.summary} ${n.body}`
+    if (!matchesAll(hay, q.value)) return false
     return true
   })
 
@@ -75,14 +91,29 @@ const list = computed(() => {
   return out
 })
 
-const hasFilter = computed(() => Boolean(q.value.trim() || status.value || category.value))
+const hasFilter = computed(() =>
+  Boolean(q.value.trim() || status.value || category.value || tag.value)
+)
 
 function reset() {
   q.value = ''
   status.value = ''
   category.value = ''
+  tag.value = ''
   sort.value = 'new'
   router.replace({ query: route.query.note ? { note: route.query.note } : {} })
+}
+
+/**
+ * 点标签 → 筛这个标签（再点一次取消，方便来回看）。
+ *
+ * ⚠️ 调用方必须 `@click.stop` —— 列表行整行带 `data-open-note`，
+ *    事件冒泡上去会被 App.vue 的全局委托接走，变成「打开这篇笔记」。
+ *    这正是改造前的实际行为（点标签 = 打开笔记）。
+ */
+function pickTag(t) {
+  tag.value = tag.value === t ? '' : t
+  pushQuery()
 }
 
 /** 序号按当前排序里的位置给，方便「第几条」这种口头引用 */
@@ -112,6 +143,12 @@ const pad = (i) => `#${String(i + 1).padStart(3, '0')}`
       <select v-model="category" class="bar-select" @change="pushQuery">
         <option value="">分类：全部</option>
         <option v-for="c in usedCategories" :key="c.key" :value="c.key">分类：{{ c.label }}</option>
+      </select>
+      <select v-model="tag" class="bar-select" @change="pushQuery">
+        <option value="">标签：全部</option>
+        <option v-for="t in usedTags" :key="t.name" :value="t.name">
+          标签：{{ t.name }}（{{ t.n }}）
+        </option>
       </select>
       <select v-model="sort" class="bar-select">
         <option value="new">排序：最新优先</option>
@@ -145,7 +182,22 @@ const pad = (i) => `#${String(i + 1).padStart(3, '0')}`
         <span class="cell-title">
           <span class="cell-title-text">{{ n.title }}</span>
           <span v-if="n.tags.length" class="cell-tags">
-            <span v-for="t in n.tags.slice(0, 3)" :key="t" class="cell-tag">#{{ t }}</span>
+            <!--
+              ⚠️ 这里**故意用 span 而不是 button**：整行 `.row-item` 本身就是
+                 `<button>`，里面再嵌一个 button 是「交互元素嵌套」，无效 HTML。
+                 裸 span + click 监听不属于「交互内容」，所以合法。
+                 代价是它**不可键盘聚焦** —— 键盘用户走上面那个「标签」下拉。
+                   （`@click.stop` 是必须的：不拦的话事件冒泡到 document，
+                   会被 App.vue 的全局委托接走，变成「打开这篇笔记」。）
+            -->
+            <span
+              v-for="t in n.tags.slice(0, 3)"
+              :key="t"
+              class="cell-tag is-clickable"
+              :title="`只看「${t}」`"
+              @click.stop="pickTag(t)"
+              >#{{ t }}</span
+            >
           </span>
         </span>
         <span><NoteBadge kind="status" :value="n.status" compact /></span>
@@ -323,6 +375,15 @@ const pad = (i) => `#${String(i + 1).padStart(3, '0')}`
   display: flex;
   flex: none;
   gap: 5px;
+}
+
+.cell-tag.is-clickable {
+  cursor: pointer;
+}
+
+.cell-tag.is-clickable:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
 }
 
 .cell-tag {

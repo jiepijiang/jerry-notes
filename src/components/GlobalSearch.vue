@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLibrary } from '@/composables/useLibrary'
 import { plainText } from '@/lib/markdown'
+import { matchesAll, tokenize } from '@/lib/parse'
 import NoteBadge from './NoteBadge.vue'
 
 /**
@@ -15,7 +16,35 @@ import NoteBadge from './NoteBadge.vue'
  * 而「记得写过但忘了标题」恰恰是最常见的检索场景。
  *
  * 匹配结果按相关度排序：标题命中 > 标签命中 > 正文命中，同级再看被引用次数。
+ *
+ * 🔴 多词是 **AND**（2026-10-09 修）
+ *
+ * 原来是把整串查询当一个子串匹配，`省略号 flex` 找的是
+ * 「省略号 flex」这连着带空格的一串 —— 必然 0 条。
+ * 现在按空白切词，**每个词都要在这篇里出现**（跨字段算）。
+ * 打分也按词算：词全落在某个字段里给满权重，只落一部分给 40%。
+ *
+ * ⚠️ 别改成 OR。OR 也能让多词「命中」，但会把检索放宽成噪声 ——
+ *    搜 `图标 密度` 会返回所有含「图标」的**或**含「密度」的。
+ *    反向判据在 `scripts/verify-search.mjs`。
  */
+
+/** 参与检索的字段与权重 —— 顺序就是相关度 */
+const FIELDS = [
+  ['title', 100],
+  ['tags', 60],
+  ['slug', 40],
+  ['summary', 30],
+  ['problem', 20],
+  ['decision', 20],
+  ['alternatives', 15],
+  ['body', 10],
+]
+
+/** 取一个字段的可检索文本（tags 是数组，单独处理） */
+function fieldText(n, key) {
+  return key === 'tags' ? n.tags.join(' ') : String(n[key] ?? '')
+}
 const { state, citationsOf } = useLibrary()
 const router = useRouter()
 
@@ -28,22 +57,30 @@ const boxEl = ref(null)
 const MAX = 8
 
 const results = computed(() => {
-  const needle = q.value.trim().toLowerCase()
-  if (!needle) return []
+  const words = tokenize(q.value)
+  if (!words.length) return []
 
   const scored = []
   for (const n of state.notes) {
+    /*
+     * 门槛：**每个词**都要在这篇里出现过（跨字段算），否则整篇跳过。
+     *
+     * ⚠️ 走共用的 `matchesAll`，**别在这里手写一遍 AND** ——
+     *    2026-10-09 造红时抓到过：这里原本是 `words.every(...)` 的副本，
+     *    于是把 `matchesAll` 的 `every` 改成 `some`（AND→OR）做造红时，
+     *    `/all` 那条反向断言红了、**这里却纹丝不动** ——
+     *    重复实现让「一处改坏」只暴露一半。
+     */
+    const whole = FIELDS.map(([k]) => fieldText(n, k)).join(' ')
+    if (!matchesAll(whole, q.value)) continue
+
     let score = 0
-    if (n.title.toLowerCase().includes(needle)) score += 100
-    if (n.tags.some((t) => t.toLowerCase().includes(needle))) score += 60
-    if (n.slug.toLowerCase().includes(needle)) score += 40
-    if ((n.summary || '').toLowerCase().includes(needle)) score += 30
-    if (n.isDecision) {
-      if (n.problem.toLowerCase().includes(needle)) score += 20
-      if (n.decision.toLowerCase().includes(needle)) score += 20
-      if (n.alternatives.toLowerCase().includes(needle)) score += 15
+    for (const [key, weight] of FIELDS) {
+      const f = fieldText(n, key).toLowerCase()
+      const hit = words.filter((w) => f.includes(w)).length
+      if (hit === words.length) score += weight // 词全落在这个字段里
+      else if (hit > 0) score += Math.round(weight * 0.4) // 只落了一部分
     }
-    if (n.body.toLowerCase().includes(needle)) score += 10
 
     if (score > 0) scored.push({ note: n, score })
   }
@@ -52,17 +89,27 @@ const results = computed(() => {
   return scored.slice(0, MAX).map((s) => ({
     note: s.note,
     // 命中位置的一小段上下文，比只给标题有用得多
-    excerpt: excerptOf(s.note, needle),
+    excerpt: excerptOf(s.note, words),
   }))
 })
 
-/** 从正文里截一小段包含关键词的上下文 */
-function excerptOf(note, needle) {
+/**
+ * 从正文里截一小段包含关键词的上下文。
+ *
+ * ⚠️ 多词时取**最早出现**的那个词来定位 —— 这样片段最贴近阅读顺序。
+ *    原来用的是 `needle.length`，多词后长度对不上，改成固定窗口。
+ */
+function excerptOf(note, words) {
   const hay = note.isDecision ? `${note.problem} ${note.decision} ${note.alternatives}` : note.body
-  const idx = hay.toLowerCase().indexOf(needle)
+  const lower = hay.toLowerCase()
+  let idx = -1
+  for (const w of words) {
+    const i = lower.indexOf(w)
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i
+  }
   if (idx < 0) return plainText(note.summary || note.problem || note.decision, 60)
   const start = Math.max(0, idx - 24)
-  return `${start > 0 ? '…' : ''}${plainText(hay.slice(start, idx + needle.length + 40), 90)}`
+  return `${start > 0 ? '…' : ''}${plainText(hay.slice(start, idx + 60), 90)}`
 }
 
 function openNote(id) {

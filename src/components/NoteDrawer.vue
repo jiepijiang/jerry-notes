@@ -18,7 +18,7 @@ const props = defineProps({
   noteId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['close', 'open'])
+const emit = defineEmits(['close', 'open', 'pick-tag'])
 
 const { state, citationsOf, incomingOf, outgoingOf } = useLibrary()
 
@@ -199,7 +199,16 @@ watch(
             <template v-if="note.tags.length">
               <span class="dw-sep">·</span>
               <span class="dw-tags">
-                <span v-for="t in note.tags" :key="t" class="dw-tag">#{{ t }}</span>
+                <!-- 抽屉里没有「整行是按钮」的问题，可以用真 button -->
+                <button
+                  v-for="t in note.tags"
+                  :key="t"
+                  class="dw-tag"
+                  :title="`只看「${t}」`"
+                  @click="emit('pick-tag', t)"
+                >
+                  #{{ t }}
+                </button>
               </span>
             </template>
           </div>
@@ -422,7 +431,16 @@ watch(
 .dw-tag {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
   padding: 1px 6px;
+}
+
+.dw-tag:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text);
 }
 
 .dw-summary {

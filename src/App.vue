@@ -26,6 +26,16 @@ function closeNote() {
 }
 
 /**
+ * 抽屉里点标签 → 跳到「全部笔记」并筛这个标签。
+ *
+ * 一次 `push` 就够：换了 path，原来的 `?note=` 不会带过去（query 是整体替换的），
+ * 所以抽屉自然关掉、也不用先 `closeNote()` 再跳（那会往历史里塞两条）。
+ */
+function openTag(tag) {
+  router.push({ path: '/all', query: { tag } })
+}
+
+/**
  * 全局事件委托。
  * 正文里的笔记链接（`.md-note-link[data-note]`）和卡片上的打开按钮都走这里 ——
  * 不用给每个渲染点单独挂 handler，也自然覆盖了 v-html 生成的内容。
@@ -109,7 +119,12 @@ onBeforeUnmount(() => {
     </span>
   </footer>
 
-  <NoteDrawer :note-id="activeNoteId" @close="closeNote" @open="openNote" />
+  <NoteDrawer
+    :note-id="activeNoteId"
+    @close="closeNote"
+    @open="openNote"
+    @pick-tag="openTag"
+  />
 </template>
 
 <style scoped>
