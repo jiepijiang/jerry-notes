@@ -105,9 +105,10 @@ onBeforeUnmount(() => {
       {{ state.notes.length }} 篇笔记 ·
       {{ state.source === 'local' ? `本地目录「${state.dirName}」` : '内置数据' }}
     </span>
-    <!-- 三站互链的收口：主站 ⇄ 导航站 ⇄ 知识库。
+    <!-- 四站互链（2026-10-12 更新）：主站 / 导航站 / 知识库 / 技能站。
          主站和导航站都各自链到了本站，本站此前只回链主站，
-         从知识库想去导航站只能先回主站绕一圈。 -->
+         从知识库想去导航站只能先回主站绕一圈。
+         2026-10-12 补上「技能站」（jerry-skills）—— 至此**四站两两一步可达**。 -->
     <span class="foot-right">
       <a href="https://jiepijiang.github.io/jerry-site/" target="_blank" rel="noopener noreferrer">
         主站
@@ -115,6 +116,10 @@ onBeforeUnmount(() => {
       <span class="foot-sep" aria-hidden="true">·</span>
       <a href="https://jiepijiang.github.io/jerry-tools/" target="_blank" rel="noopener noreferrer">
         导航站
+      </a>
+      <span class="foot-sep" aria-hidden="true">·</span>
+      <a href="https://jiepijiang.github.io/jerry-skills/" target="_blank" rel="noopener noreferrer">
+        技能站
       </a>
     </span>
   </footer>
