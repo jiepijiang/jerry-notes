@@ -11,7 +11,8 @@
     "prebuild": "npm run notes",
     "build": "vite build",
     "preview": "vite preview",
-    "verify:search": "node scripts/verify-search.mjs"
+    "verify:search": "node scripts/verify-search.mjs",
+    "check:meta": "node scripts/check-meta.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13",

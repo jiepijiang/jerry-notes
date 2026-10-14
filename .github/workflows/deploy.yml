@@ -36,6 +36,15 @@ jobs:
       - name: 构建
         run: npm run build
 
+      # 分享卡片标签的构建期核对（2026-10-14 补）。
+      #
+      # 必须在**构建之后**跑：og:image 里的域名 / 子路径与 vite.config.js 的
+      # REPO_NAME 是**两处独立的地方**，换仓库名时只改一处，站点照样跑，
+      # 只有分享卡片静默指向一张 404 的图。脚本从产物反推实际 base 再要求
+      # og 自洽，所以换名字时不用改它。
+      - name: 核对分享卡片标签（og / twitter）
+        run: npm run check:meta
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
